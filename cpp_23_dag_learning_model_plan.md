@@ -214,12 +214,12 @@ At each social-learning step:
 7. One trait is selected in proportion to weights.
 8. If the selected trait is learnable given the focal repertoire, the focal acquires it. Otherwise, the attempt fails.
 
-Optional payoff-bias failure-free mode:
+Optional social-learning failure-free mode:
 
-- When `payoff_bias_failure_free = true`, this retry behavior applies only to payoff-biased social learning.
-- If payoff-biased learning selects an inaccessible trait, remove that trait from the current candidate weights and sample again from the remaining weighted candidates.
+- When `social_learning_failure_free = true`, this retry behavior applies to both payoff-biased and conformist social learning.
+- If social learning selects an inaccessible trait, remove that trait from the current candidate weights and sample again from the remaining weighted candidates.
 - If no weighted learnable candidate remains, the step fails.
-- Conformist learning and random-asocial initialization retain the normal failure behavior.
+- Random-asocial initialization retains the normal failure behavior.
 
 Expression rule:
 
@@ -432,7 +432,7 @@ reset_rate_tuning_population_size = 10000
 m_demonstrators = 10
 beta_payoff = 2.0
 beta_conformity = 2.0
-payoff_bias_failure_free = false
+social_learning_failure_free = false
 fixed_reset_rate = optional social-learning override
 min_ols_trait_rows = 5
 min_ols_focal_repertoires = 1
@@ -478,7 +478,7 @@ beta_conformity
 m_demonstrators
 population_size
 rng_seed
-payoff_bias_failure_free
+social_learning_failure_free
 ```
 
 Optional detailed output filename:
@@ -507,7 +507,7 @@ m_demonstrators
 population_size
 num_social_steps
 rng_seed
-payoff_bias_failure_free
+social_learning_failure_free
 ```
 
 Additional diagnostic output:

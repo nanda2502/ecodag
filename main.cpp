@@ -51,7 +51,7 @@ struct Options {
     int min_ols_trait_rows = 5;
     int min_ols_focal_repertoires = 1;
     int min_payoff_estimates = 1;
-    bool payoff_bias_failure_free = false;
+    bool social_learning_failure_free = false;
     bool emit_detailed_results = false;
 };
 
@@ -190,8 +190,8 @@ enum class Strategy {
             options.min_ols_focal_repertoires = parse_int(need_value(key));
         } else if (key == "--min-payoff-estimates") {
             options.min_payoff_estimates = parse_int(need_value(key));
-        } else if (key == "--payoff-bias-failure-free") {
-            options.payoff_bias_failure_free = true;
+        } else if (key == "--social-learning-failure-free") {
+            options.social_learning_failure_free = true;
         } else if (key == "--emit-detailed-results") {
             options.emit_detailed_results = true;
         } else {
@@ -572,7 +572,7 @@ void social_learning_step(
             focal |= Mask{1} << selected;
             return;
         }
-        if (strategy != Strategy::PayoffBiased || !options.payoff_bias_failure_free) {
+        if (!options.social_learning_failure_free) {
             return;
         }
 
@@ -831,7 +831,7 @@ void write_results(
         << "postfix,row_index,payoff_assignment_id,resident_strategy,local_kappa,"
         << "repertoire_size_bin,eta,chi,num_focal_repertoires,num_trait_focal_rows,"
         << "reset_rate,beta_payoff,beta_conformity,m_demonstrators,population_size,"
-        << "num_social_steps,rng_seed,payoff_bias_failure_free,final_omniscient_fraction,mean_repertoire_size,"
+        << "num_social_steps,rng_seed,social_learning_failure_free,final_omniscient_fraction,mean_repertoire_size,"
         << "final_tv_distance\n";
 
     output << std::setprecision(17);
@@ -854,7 +854,7 @@ void write_results(
             << options.population_size << ','
             << row.steps_run << ','
             << options.rng_seed << ','
-            << options.payoff_bias_failure_free << ','
+            << options.social_learning_failure_free << ','
             << row.final_omniscient_fraction << ','
             << row.mean_repertoire_size << ','
             << row.final_tv_distance << '\n';
@@ -935,7 +935,7 @@ void write_averaged_results(
         << "postfix,row_index,resident_strategy,local_kappa,repertoire_size_bin,"
         << "mean_eta,mean_chi,sd_eta,sd_chi,num_payoff_estimates,"
         << "mean_focal_repertoires,mean_trait_focal_rows,reset_rate,beta_payoff,"
-        << "beta_conformity,m_demonstrators,population_size,rng_seed,payoff_bias_failure_free\n";
+        << "beta_conformity,m_demonstrators,population_size,rng_seed,social_learning_failure_free\n";
 
     output << std::setprecision(17);
     for (const auto& row : rows) {
@@ -958,7 +958,7 @@ void write_averaged_results(
             << options.m_demonstrators << ','
             << options.population_size << ','
             << options.rng_seed << ','
-            << options.payoff_bias_failure_free << '\n';
+            << options.social_learning_failure_free << '\n';
     }
 }
 
@@ -1093,7 +1093,7 @@ int main(int argc, char** argv) {
             << " social_reset_rate=" << social_reset_rate
             << " initialized_omniscient_fraction=" << initialized_summary.omniscient_fraction
             << " payoff_assignments=" << payoffs.size()
-            << " payoff_bias_failure_free=" << options.payoff_bias_failure_free
+            << " social_learning_failure_free=" << options.social_learning_failure_free
             << " rows=" << all_rows.size()
             << " detailed_output=" << (options.emit_detailed_results ? output_path : "not_emitted")
             << " averaged_output=" << averaged_output_path << '\n';
