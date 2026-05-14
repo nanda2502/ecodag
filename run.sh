@@ -13,7 +13,7 @@ max_parallel=$SLURM_NTASKS_PER_NODE
 running=0
 
 for idx in $(seq "$SLURM_ARRAY_TASK_ID" "$SLURM_ARRAY_TASK_COUNT" 2044); do
-    out="output/results_8_${idx}.csv"
+    out="output/results_avg_8_${idx}.csv"
 
     if [[ -s "$out" ]]; then
         echo "Skipping idx ${idx}: ${out} already exists"
@@ -22,7 +22,7 @@ for idx in $(seq "$SLURM_ARRAY_TASK_ID" "$SLURM_ARRAY_TASK_COUNT" 2044); do
 
     echo "Starting idx ${idx}"
 
-    srun --exclusive -N1 -n1 -c "$SLURM_CPUS_PER_TASK" ./ecodag 8 "$idx" &
+    srun --exclusive -N1 -n1 -c "$SLURM_CPUS_PER_TASK" ./build/ecodag 8 "$idx" &
 
     running=$((running + 1))
 

@@ -429,17 +429,48 @@ num_threads = omp default
 
 ## 12. Outputs
 
-For each run, write summary CSV files.
+For each run, write summary CSV files under `output/`.
 
-Suggested output filename:
+Default output filename:
 
 ```text
-results_<postfix>_<row_index>.csv
+output/results_avg_<postfix>_<row_index>.csv
 ```
 
 The filename should include only the postfix and row index needed for later merging. Other simulation settings should appear as columns in the CSV, not in the filename.
 
-Main output columns:
+Default output stores eta and chi averaged over payoff assignments while preserving strategy, local kappa, and repertoire-size strata. Detailed per-payoff output is optional and should only be emitted when requested, because full default runs generate many rows.
+
+Default averaged output columns:
+
+```text
+postfix
+row_index
+resident_strategy
+local_kappa
+repertoire_size_bin
+mean_eta
+mean_chi
+sd_eta
+sd_chi
+num_payoff_estimates
+mean_focal_repertoires
+mean_trait_focal_rows
+reset_rate
+beta_payoff
+beta_conformity
+m_demonstrators
+population_size
+rng_seed
+```
+
+Optional detailed output filename:
+
+```text
+output/results_<postfix>_<row_index>.csv
+```
+
+Optional detailed output columns:
 
 ```text
 postfix

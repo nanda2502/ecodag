@@ -1,5 +1,3 @@
 .clangd
 build/
-input/
 output/
-*.csv

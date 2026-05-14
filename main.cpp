@@ -48,6 +48,7 @@ struct Options {
     int convergence_window_multiplier = 5;
     double convergence_tolerance = 0.01;
     int convergence_patience = 3;
+    bool emit_detailed_results = false;
 };
 
 struct Graph {
@@ -179,6 +180,8 @@ enum class Strategy {
             options.convergence_tolerance = parse_double(need_value(key));
         } else if (key == "--convergence-patience") {
             options.convergence_patience = parse_int(need_value(key));
+        } else if (key == "--emit-detailed-results") {
+            options.emit_detailed_results = true;
         } else {
             throw std::runtime_error("Unknown argument: " + key);
         }
@@ -1030,7 +1033,9 @@ int main(int argc, char** argv) {
             + std::to_string(options.row_index) + ".csv";
         const std::string averaged_output_path = "output/results_avg_" + options.postfix + "_"
             + std::to_string(options.row_index) + ".csv";
-        write_results(output_path, options, social_reset_rate, all_rows);
+        if (options.emit_detailed_results) {
+            write_results(output_path, options, social_reset_rate, all_rows);
+        }
         write_averaged_results(averaged_output_path, options, social_reset_rate, average_over_payoffs(all_rows));
 
         const auto initialized_summary = summarize_population(initialized, graph);
@@ -1041,7 +1046,7 @@ int main(int argc, char** argv) {
             << " initialized_omniscient_fraction=" << initialized_summary.omniscient_fraction
             << " payoff_assignments=" << payoffs.size()
             << " rows=" << all_rows.size()
-            << " output=" << output_path
+            << " detailed_output=" << (options.emit_detailed_results ? output_path : "not_emitted")
             << " averaged_output=" << averaged_output_path << '\n';
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';
