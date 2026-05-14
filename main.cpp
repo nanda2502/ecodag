@@ -48,6 +48,10 @@ struct Options {
     int convergence_window_multiplier = 5;
     double convergence_tolerance = 0.01;
     int convergence_patience = 3;
+    int min_ols_trait_rows = 5;
+    int min_ols_focal_repertoires = 1;
+    int min_payoff_estimates = 1;
+    bool payoff_bias_failure_free = false;
     bool emit_detailed_results = false;
 };
 
@@ -180,6 +184,14 @@ enum class Strategy {
             options.convergence_tolerance = parse_double(need_value(key));
         } else if (key == "--convergence-patience") {
             options.convergence_patience = parse_int(need_value(key));
+        } else if (key == "--min-ols-trait-rows") {
+            options.min_ols_trait_rows = parse_int(need_value(key));
+        } else if (key == "--min-ols-focal-repertoires") {
+            options.min_ols_focal_repertoires = parse_int(need_value(key));
+        } else if (key == "--min-payoff-estimates") {
+            options.min_payoff_estimates = parse_int(need_value(key));
+        } else if (key == "--payoff-bias-failure-free") {
+            options.payoff_bias_failure_free = true;
         } else if (key == "--emit-detailed-results") {
             options.emit_detailed_results = true;
         } else {
@@ -220,6 +232,15 @@ enum class Strategy {
     if (options.fixed_reset_rate.has_value()
         && (*options.fixed_reset_rate < 0.0 || *options.fixed_reset_rate > 1.0)) {
         throw std::runtime_error("--fixed-reset-rate must be between 0 and 1");
+    }
+    if (options.min_ols_trait_rows < 3) {
+        throw std::runtime_error("--min-ols-trait-rows must be at least 3");
+    }
+    if (options.min_ols_focal_repertoires < 1) {
+        throw std::runtime_error("--min-ols-focal-repertoires must be at least 1");
+    }
+    if (options.min_payoff_estimates < 1) {
+        throw std::runtime_error("--min-payoff-estimates must be at least 1");
     }
 
     return options;
@@ -529,19 +550,38 @@ void social_learning_step(
         return;
     }
 
-    std::uniform_real_distribution<double> weight_dist(0.0, total_weight);
-    double cursor = weight_dist(rng);
-    int selected = graph.n - 1;
-    for (int trait = 0; trait < graph.n; ++trait) {
-        cursor -= weights[static_cast<std::size_t>(trait)];
-        if (cursor <= 0.0) {
-            selected = trait;
-            break;
+    while (total_weight > 0.0) {
+        std::uniform_real_distribution<double> weight_dist(0.0, total_weight);
+        double cursor = weight_dist(rng);
+        int selected = -1;
+        for (int trait = 0; trait < graph.n; ++trait) {
+            if (weights[static_cast<std::size_t>(trait)] <= 0.0) {
+                continue;
+            }
+            cursor -= weights[static_cast<std::size_t>(trait)];
+            if (cursor <= 0.0) {
+                selected = trait;
+                break;
+            }
         }
-    }
+        if (selected < 0) {
+            return;
+        }
 
-    if (graph.learnable(focal, selected)) {
-        focal |= Mask{1} << selected;
+        if (graph.learnable(focal, selected)) {
+            focal |= Mask{1} << selected;
+            return;
+        }
+        if (strategy != Strategy::PayoffBiased || !options.payoff_bias_failure_free) {
+            return;
+        }
+
+        const double selected_weight = weights[static_cast<std::size_t>(selected)];
+        if (selected_weight <= 0.0) {
+            return;
+        }
+        total_weight -= selected_weight;
+        weights[static_cast<std::size_t>(selected)] = 0.0;
     }
 }
 
@@ -680,7 +720,8 @@ struct MetricAccumulator {
     const std::vector<double>& payoffs,
     const std::string& strategy_name,
     int payoff_assignment_id,
-    const SimulationDiagnostics& diagnostics
+    const SimulationDiagnostics& diagnostics,
+    const Options& options
 ) {
     const auto counts = repertoire_counts(agents);
     const auto visibility = trait_visibility(agents, graph);
@@ -741,6 +782,10 @@ struct MetricAccumulator {
 
     std::vector<MetricRow> rows;
     for (const auto& [key, accumulator] : by_bin) {
+        if (accumulator.trait_rows < options.min_ols_trait_rows
+            || static_cast<int>(accumulator.repertoires.size()) < options.min_ols_focal_repertoires) {
+            continue;
+        }
         const auto estimate = solve_eta_chi(accumulator.ols);
         if (!estimate.has_value()) {
             continue;
@@ -786,7 +831,7 @@ void write_results(
         << "postfix,row_index,payoff_assignment_id,resident_strategy,local_kappa,"
         << "repertoire_size_bin,eta,chi,num_focal_repertoires,num_trait_focal_rows,"
         << "reset_rate,beta_payoff,beta_conformity,m_demonstrators,population_size,"
-        << "num_social_steps,rng_seed,final_omniscient_fraction,mean_repertoire_size,"
+        << "num_social_steps,rng_seed,payoff_bias_failure_free,final_omniscient_fraction,mean_repertoire_size,"
         << "final_tv_distance\n";
 
     output << std::setprecision(17);
@@ -809,13 +854,17 @@ void write_results(
             << options.population_size << ','
             << row.steps_run << ','
             << options.rng_seed << ','
+            << options.payoff_bias_failure_free << ','
             << row.final_omniscient_fraction << ','
             << row.mean_repertoire_size << ','
             << row.final_tv_distance << '\n';
     }
 }
 
-[[nodiscard]] std::vector<AveragedMetricRow> average_over_payoffs(const std::vector<MetricRow>& rows) {
+[[nodiscard]] std::vector<AveragedMetricRow> average_over_payoffs(
+    const std::vector<MetricRow>& rows,
+    const Options& options
+) {
     struct Accumulator {
         double sum_eta = 0.0;
         double sum_chi = 0.0;
@@ -842,6 +891,9 @@ void write_results(
     std::vector<AveragedMetricRow> averaged;
     averaged.reserve(accumulators.size());
     for (const auto& [key, acc] : accumulators) {
+        if (acc.count < options.min_payoff_estimates) {
+            continue;
+        }
         const auto& [strategy, kappa_key, repertoire_size] = key;
         const double count = static_cast<double>(acc.count);
         const double mean_eta = acc.sum_eta / count;
@@ -883,7 +935,7 @@ void write_averaged_results(
         << "postfix,row_index,resident_strategy,local_kappa,repertoire_size_bin,"
         << "mean_eta,mean_chi,sd_eta,sd_chi,num_payoff_estimates,"
         << "mean_focal_repertoires,mean_trait_focal_rows,reset_rate,beta_payoff,"
-        << "beta_conformity,m_demonstrators,population_size,rng_seed\n";
+        << "beta_conformity,m_demonstrators,population_size,rng_seed,payoff_bias_failure_free\n";
 
     output << std::setprecision(17);
     for (const auto& row : rows) {
@@ -905,7 +957,8 @@ void write_averaged_results(
             << options.beta_conformity << ','
             << options.m_demonstrators << ','
             << options.population_size << ','
-            << options.rng_seed << '\n';
+            << options.rng_seed << ','
+            << options.payoff_bias_failure_free << '\n';
     }
 }
 
@@ -930,6 +983,17 @@ int main(int argc, char** argv) {
         const auto initialized = initialize_population(graph, options, initialization_reset_rate);
         const auto payoffs = payoff_assignments(graph, options);
 
+        auto conformist_population = initialized;
+        const auto conformist_diag = run_social_learning(
+            conformist_population,
+            graph,
+            payoffs.front(),
+            Strategy::Conformist,
+            social_reset_rate,
+            options,
+            options.rng_seed + 200'000
+        );
+
         std::vector<MetricRow> all_rows;
 
 #ifdef _OPENMP
@@ -939,7 +1003,6 @@ int main(int argc, char** argv) {
 #pragma omp for schedule(dynamic)
             for (int p = 0; p < static_cast<int>(payoffs.size()); ++p) {
                 auto payoff_population = initialized;
-                auto conformist_population = initialized;
 
                 const auto payoff_diag = run_social_learning(
                     payoff_population,
@@ -950,15 +1013,6 @@ int main(int argc, char** argv) {
                     options,
                     options.rng_seed + 100'000 + static_cast<std::uint64_t>(p)
                 );
-                const auto conformist_diag = run_social_learning(
-                    conformist_population,
-                    graph,
-                    payoffs[static_cast<std::size_t>(p)],
-                    Strategy::Conformist,
-                    social_reset_rate,
-                    options,
-                    options.rng_seed + 200'000 + static_cast<std::uint64_t>(p)
-                );
 
                 append_rows(local_rows, compute_metrics(
                     payoff_population,
@@ -966,7 +1020,8 @@ int main(int argc, char** argv) {
                     payoffs[static_cast<std::size_t>(p)],
                     "payoff_biased",
                     p,
-                    payoff_diag
+                    payoff_diag,
+                    options
                 ));
                 append_rows(local_rows, compute_metrics(
                     conformist_population,
@@ -974,7 +1029,8 @@ int main(int argc, char** argv) {
                     payoffs[static_cast<std::size_t>(p)],
                     "conformist",
                     p,
-                    conformist_diag
+                    conformist_diag,
+                    options
                 ));
             }
 #pragma omp critical
@@ -983,7 +1039,6 @@ int main(int argc, char** argv) {
 #else
         for (int p = 0; p < static_cast<int>(payoffs.size()); ++p) {
             auto payoff_population = initialized;
-            auto conformist_population = initialized;
 
             const auto payoff_diag = run_social_learning(
                 payoff_population,
@@ -994,15 +1049,6 @@ int main(int argc, char** argv) {
                 options,
                 options.rng_seed + 100'000 + static_cast<std::uint64_t>(p)
             );
-            const auto conformist_diag = run_social_learning(
-                conformist_population,
-                graph,
-                payoffs[static_cast<std::size_t>(p)],
-                Strategy::Conformist,
-                social_reset_rate,
-                options,
-                options.rng_seed + 200'000 + static_cast<std::uint64_t>(p)
-            );
 
             append_rows(all_rows, compute_metrics(
                 payoff_population,
@@ -1010,7 +1056,8 @@ int main(int argc, char** argv) {
                 payoffs[static_cast<std::size_t>(p)],
                 "payoff_biased",
                 p,
-                payoff_diag
+                payoff_diag,
+                options
             ));
             append_rows(all_rows, compute_metrics(
                 conformist_population,
@@ -1018,7 +1065,8 @@ int main(int argc, char** argv) {
                 payoffs[static_cast<std::size_t>(p)],
                 "conformist",
                 p,
-                conformist_diag
+                conformist_diag,
+                options
             ));
         }
 #endif
@@ -1036,7 +1084,7 @@ int main(int argc, char** argv) {
         if (options.emit_detailed_results) {
             write_results(output_path, options, social_reset_rate, all_rows);
         }
-        write_averaged_results(averaged_output_path, options, social_reset_rate, average_over_payoffs(all_rows));
+        write_averaged_results(averaged_output_path, options, social_reset_rate, average_over_payoffs(all_rows, options));
 
         const auto initialized_summary = summarize_population(initialized, graph);
         std::cerr
@@ -1045,6 +1093,7 @@ int main(int argc, char** argv) {
             << " social_reset_rate=" << social_reset_rate
             << " initialized_omniscient_fraction=" << initialized_summary.omniscient_fraction
             << " payoff_assignments=" << payoffs.size()
+            << " payoff_bias_failure_free=" << options.payoff_bias_failure_free
             << " rows=" << all_rows.size()
             << " detailed_output=" << (options.emit_detailed_results ? output_path : "not_emitted")
             << " averaged_output=" << averaged_output_path << '\n';

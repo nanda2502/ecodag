@@ -214,6 +214,13 @@ At each social-learning step:
 7. One trait is selected in proportion to weights.
 8. If the selected trait is learnable given the focal repertoire, the focal acquires it. Otherwise, the attempt fails.
 
+Optional payoff-bias failure-free mode:
+
+- When `payoff_bias_failure_free = true`, this retry behavior applies only to payoff-biased social learning.
+- If payoff-biased learning selects an inaccessible trait, remove that trait from the current candidate weights and sample again from the remaining weighted candidates.
+- If no weighted learnable candidate remains, the step fails.
+- Conformist learning and random-asocial initialization retain the normal failure behavior.
+
 Expression rule:
 
 ```text
@@ -349,12 +356,15 @@ Preferred structure:
 Outer parallel loop:
 
 ```text
+run conformist population once, because conformist resident dynamics is payoff-independent
 for payoff_assignment in payoff_assignments:
     run payoff-biased population
-    run conformist population
-    compute visibility and metrics
+    compute payoff-biased metrics using the payoff-specific resident population
+    compute conformist metrics using the shared conformist resident population and current payoff assignment
     accumulate metrics into thread-local aggregators indexed by bins
 ```
+
+The conformist final population is independent of payoff values because conformist learning weights depend only on observed trait counts. It should therefore be simulated once per graph and reused across payoff assignments. The conformist metrics are still evaluated for every payoff permutation, because the payoff predictor in the eta/chi regression changes.
 
 Aggregator keys:
 
@@ -383,6 +393,8 @@ Important design choice:
 - Pooling regression sufficient statistics across payoff shuffles is more statistically efficient but harder to inspect.
 
 Preferred first implementation: compute eta and chi per payoff assignment and bin, then average the estimates across payoff assignments. This makes payoff-assignment variation explicit.
+
+Sparse OLS fits should be filtered rather than reported. The default minimum is `min_ols_trait_rows = 5`, giving at least two residual degrees of freedom for an intercept plus inaccessible and payoff predictors. Additional thresholds can require a minimum number of focal repertoires per per-payoff bin and a minimum number of payoff-specific estimates before an averaged row is emitted.
 
 Repertoire-size stratification can be implemented inside the metric calculation. It does not need to be an outer simulation loop unless we later want equal numbers of sampled focal repertoires per repertoire size.
 
@@ -420,7 +432,11 @@ reset_rate_tuning_population_size = 10000
 m_demonstrators = 10
 beta_payoff = 2.0
 beta_conformity = 2.0
+payoff_bias_failure_free = false
 fixed_reset_rate = optional social-learning override
+min_ols_trait_rows = 5
+min_ols_focal_repertoires = 1
+min_payoff_estimates = 1
 rng_seed = optional
 num_threads = omp default
 ```
@@ -462,6 +478,7 @@ beta_conformity
 m_demonstrators
 population_size
 rng_seed
+payoff_bias_failure_free
 ```
 
 Optional detailed output filename:
@@ -490,6 +507,7 @@ m_demonstrators
 population_size
 num_social_steps
 rng_seed
+payoff_bias_failure_free
 ```
 
 Additional diagnostic output:
